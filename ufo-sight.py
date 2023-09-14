@@ -5,18 +5,34 @@ import re
 import json
 from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
-from flask import Flask, render_template
+from flask import Flask, render_template, request
 from bs4 import BeautifulSoup
 
 app = Flask(__name__, template_folder='templates')
 
-@app.route("/")
-
 # Main method. Renders HTML template with data pulled from UFO service.
+@app.route("/")
 def main():
     # Format yyyymm required by UFO datatables for pulling data
     year_month = str(datetime.now().year) + str(datetime.now().month).zfill(2)
     return render_template("ufo-sight-template.html", json_obj=pull_data(year_month))
+
+# Filter by country
+@app.route('/location', methods=['GET'])
+def filter_by_country_route():
+    # Format yyyymm required by UFO datatables for pulling data
+    year_month = str(datetime.now().year) + str(datetime.now().month).zfill(2)
+    args = request.args
+    return render_template("ufo-sight-template.html", json_obj=filter_by_country(pull_data(year_month), request.args["country"]))
+
+# Filter by date
+@app.route('/date', methods=['GET'])
+def filter_by_date_route():
+    # Format yyyymm required by UFO datatables for pulling data
+    year_month = str(datetime.now().year) + str(datetime.now().month).zfill(2)
+    args = request.args
+    return render_template("ufo-sight-template.html", json_obj=filter_by_date(pull_data(year_month), request.args["ddmmyyyy"]))
+
 
 # Calculate number of pages per month. Each page contains a maximum of 100 rows. 
 def calculate_pages(table_entries):
@@ -96,3 +112,12 @@ def pull_data(year_month):
         headers["referer"] = 'https://nuforc.org/subndx/?id=' + year_month
         url = "https://nuforc.org/wp-admin/admin-ajax.php?action=get_wdtable&table_id=1&wdt_var1=YearMonth&wdt_var2=" + year_month
     return json.dumps(container_arr, indent=4)
+
+
+# Filter data by country
+def filter_by_country(json_obj, country):
+    return json.dumps([obj for obj in json.loads(json_obj) if(obj['location'].split(",")[2].strip(" ") == country)], indent=4)
+
+# Filter data by date
+def filter_by_date(json_obj, ddmmyyyy):
+    return json.dumps([obj for obj in json.loads(json_obj) if(obj['occurred'].split(" ")[0].replace("/","") == ddmmyyyy)], indent=4)
