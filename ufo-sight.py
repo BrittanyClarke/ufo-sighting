@@ -10,14 +10,14 @@ from datetime import date
 from dateutil.relativedelta import relativedelta
 from flask import Flask, render_template
 
-app = Flask(__name__, template_folder='template')
+app = Flask(__name__, template_folder='templates')
 
 @app.route("/")
 def main():
     #TODO: SEED DATABASE HERE!!!!!
     seed_db()
-    year_month = "202308"
-    return render_template("output.html", json_obj=pull_data(year_month))
+    year_month = "202309"
+    return render_template("ufo-sight-template.html", json_obj=pull_data(year_month))
 
 def calculate_pages(table_entries):
     # 100 table entries per page
