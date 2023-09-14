@@ -55,11 +55,11 @@ def pull_data(year_month):
     start_point = 100
 
     # Loop through each page
-    while(page_num < pages):
+    while(page_num <= pages):
         for row in range(len(json.loads(response)["data"])):
             # Set each data point for the row
             container_arr.append({
-                "date": json.loads(response)["data"][row][1],
+                "occured": json.loads(response)["data"][row][1],
                 "location": str(json.loads(response)["data"][row][2]) + ", " + str(json.loads(response)["data"][row][3]) + ", " + str(json.loads(response)["data"][row][4]),
                 "shape": json.loads(response)["data"][row][5],
                 "summary": json.loads(response)["data"][row][6] 
