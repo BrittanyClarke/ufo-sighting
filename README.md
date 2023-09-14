@@ -26,4 +26,15 @@ To start the project, complete the following:
       flask --app ufo-sight run
     ```
   4. Navigate to http://127.0.0.1:5000/ on your browser
-  5. Voilà! View UFO sighting from the past 6 months in a JSON object
+  5. Voilà! View UFO sighting from the past 6 months in a JSON object. For more specific filters, please see the _Routes_ section below
+
+## Routes
+This application has 3 routes, and they are as follows:
+  - /
+    - Example usage: http://127.0.0.1:5000/ will display all sightings from the past 6 months
+  - /date
+    - This route takes a date as a ddmmyyy-formatted parameter
+    - Example usage: http://127.0.0.1:5000/date?ddmmyyyy=09022023 will display all sightings from the date of 09/02/2023
+  - /location
+      - This route takes a country as a location parameter
+      - Example usage: http://127.0.0.1:5000/location?country=USA will display all sightings from the USA
