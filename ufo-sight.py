@@ -1,5 +1,11 @@
 # UFO sighting tool. Pulls location, date of occurence, & details of sighting
-import requests 
+import requests
+import traceback
+import re 
+import pymongo
+import certifi
+from pymongo import MongoClient, InsertOne
+from pymongo.server_api import ServerApi
 import math
 import re
 import json
@@ -7,6 +13,7 @@ from datetime import date, datetime
 from dateutil.relativedelta import relativedelta
 from flask import Flask, render_template, request
 from bs4 import BeautifulSoup
+from bson.json_util import dumps
 
 app = Flask(__name__, template_folder='templates')
 
@@ -15,23 +22,26 @@ app = Flask(__name__, template_folder='templates')
 def main():
     # Format yyyymm required by UFO datatables for pulling data
     year_month = str(datetime.now().year) + str(datetime.now().month).zfill(2)
-    return render_template("ufo-sight-template.html", json_obj=pull_data(year_month))
+    export_to_mongodb(pull_data(year_month))
+    return render_template("ufo-sight-template.html", json_obj=import_from_mongodb())
 
 # Filter by country
 @app.route('/location', methods=['GET'])
 def filter_by_country_route():
     # Format yyyymm required by UFO datatables for pulling data
     year_month = str(datetime.now().year) + str(datetime.now().month).zfill(2)
+    export_to_mongodb(pull_data(year_month))
     args = request.args
-    return render_template("ufo-sight-template.html", json_obj=filter_by_country(pull_data(year_month), request.args["country"]))
+    return render_template("ufo-sight-template.html", json_obj=import_from_mongodb("location", request.args["country"]))
 
 # Filter by date
 @app.route('/date', methods=['GET'])
 def filter_by_date_route():
     # Format yyyymm required by UFO datatables for pulling data
     year_month = str(datetime.now().year) + str(datetime.now().month).zfill(2)
+    export_to_mongodb(pull_data(year_month))
     args = request.args
-    return render_template("ufo-sight-template.html", json_obj=filter_by_date(pull_data(year_month), request.args["ddmmyyyy"]))
+    return render_template("ufo-sight-template.html", json_obj=import_from_mongodb("date", request.args["ddmmyyyy"]))
 
 
 # Calculate number of pages per month. Each page contains a maximum of 100 rows. 
@@ -95,7 +105,8 @@ def pull_data(year_month):
                 # Construct JSON object for each row *if* the sighting has happened within the past 6 months only
                 if six_months_ago <= datetime.strptime(json.loads(response)["data"][row][1], '%m/%d/%Y %H:%M') <= datetime.now():
                     container_arr.append({
-                        "occurred": json.loads(response)["data"][row][1],
+                        "_id": re.findall(r'id=(\d+)', json.loads(response)["data"][row][0])[0],
+                        "occurred": datetime.strptime(json.loads(response)["data"][row][1], '%m/%d/%Y %H:%M'),
                         "location": str(json.loads(response)["data"][row][2]) + ", " + str(json.loads(response)["data"][row][3]) + ", " + str(json.loads(response)["data"][row][4]),
                         "shape": json.loads(response)["data"][row][5],
                         "summary": json.loads(response)["data"][row][6] 
@@ -111,13 +122,59 @@ def pull_data(year_month):
         year_month = str(loop_date.year) + str(loop_date.month).zfill(2)
         headers["referer"] = 'https://nuforc.org/subndx/?id=' + year_month
         url = "https://nuforc.org/wp-admin/admin-ajax.php?action=get_wdtable&table_id=1&wdt_var1=YearMonth&wdt_var2=" + year_month
-    return json.dumps(container_arr, indent=4)
+    return container_arr
+
+# Export data to our DB
+def export_to_mongodb(ufo_json_obj):
+    uri = "mongodb+srv://admin:Ch0c01ate41!@ufocluster.slqyniu.mongodb.net/?retryWrites=true&w=majority"
+    client = pymongo.MongoClient(uri, server_api=ServerApi('1'), tlsCAFile=certifi.where())
+    db = client.UfoCluster
+    collection = db.ufoSightings
+
+    # Log any errors to log.txt file when data cannot be inserted (i.e. duplicate entries)
+    with open("log.txt", "w") as log:
+        try:
+            collection.insert_many(ufo_json_obj, ordered=False)
+        except Exception:
+            traceback.print_exc(file=log)
+            pass 
+
+    # Delete sighting entries older than 6 months
+    delete_old_entries(collection)
+
+# Import data from our DB
+def import_from_mongodb(filter_type="none", filter=""):
+    uri = "mongodb+srv://admin:Ch0c01ate41!@ufocluster.slqyniu.mongodb.net/?retryWrites=true&w=majority"
+    client = pymongo.MongoClient(uri, server_api=ServerApi('1'), tlsCAFile=certifi.where())
+    db = client.UfoCluster
+    collection = db.ufoSightings
+
+    # Route is "/"
+    if filter_type == "none":
+        return dumps(list(collection.find().sort("occurred", -1)), indent=4)
+
+    # Route is "/location/{country}"
+    if filter_type == "location":
+        # Filter by country user provides. Case insensitive.
+        return dumps(list(collection.find({"location": {"$regex": filter, '$options' : 'i'}}).sort("occurred", -1)), indent=4)
+
+    # Route is "/date/{ddmmyyyy}"
+    if filter_type == "date":
+        # Filter by date user provides.
+        dt_obj = datetime(int(filter[4:8]), int(filter[0:2]), int(filter[2:4]))
+        dt_obj_next_day = dt_obj
+        dt_obj_next_day += relativedelta(days=1)
+        return dumps(list(collection.find({"occurred": {"$gte": dt_obj, "$lt": dt_obj_next_day}}).sort("occurred", -1)), indent=4)
 
 
-# Filter data by country
-def filter_by_country(json_obj, country):
-    return json.dumps([obj for obj in json.loads(json_obj) if(obj['location'].split(",")[2].strip(" ") == country)], indent=4)
+# Delete entries older than 6 months
+def delete_old_entries(collection):
 
-# Filter data by date
-def filter_by_date(json_obj, ddmmyyyy):
-    return json.dumps([obj for obj in json.loads(json_obj) if(obj['occurred'].split(" ")[0].replace("/","") == ddmmyyyy)], indent=4)
+    # Calculate date that was six months ago
+    six_months_ago = datetime.now() + relativedelta(months=-6)
+
+    # Create a query object
+    query = {"occurred": {"$lt": six_months_ago}}
+
+    # Delete all documents that match the query object
+    collection.delete_many(query)
